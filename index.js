@@ -472,28 +472,38 @@ class Recommender {
     };
   }
 
-  // Expected value of Beta distribution
-  getFeatureValueRating(category, value) {
-    const counts = this.stats[category]?.[value] || { likes: 0, dislikes: 0 };
-    const alpha = 1 + counts.likes;
-    const beta = 1 + counts.dislikes;
-    return alpha / (alpha + beta);
+  setVocabulary(cards) {
+    this.vocabSizes = {
+      name: new Set(),
+      artist: new Set(),
+      type: new Set(),
+      rarity: new Set(),
+      set: new Set(),
+      year: new Set(),
+      subtype: new Set()
+    };
+    cards.forEach(card => {
+      const features = this.extractCardFeatures(card);
+      for (const [cat, vals] of Object.entries(features)) {
+        if (this.vocabSizes[cat]) {
+          vals.forEach(val => this.vocabSizes[cat].add(val));
+        }
+      }
+    });
   }
 
-  // Draw Thompson sample for a single feature value
-  sampleFeatureValueScore(category, value) {
-    const counts = this.stats[category]?.[value] || { likes: 0, dislikes: 0 };
-    const alpha = 1 + counts.likes;
-    const beta = 1 + counts.dislikes;
-    return sampleBeta(alpha, beta);
-  }
-
-  // Score a single card using Thompson Sampling across all its features (weighted average)
-  scoreCard(card, debug = false) {
+  calculateNaiveBayesProbability(card) {
     const features = this.extractCardFeatures(card);
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
-    
+    const totalLikes = this.likedCardIds.size;
+    const totalDislikes = this.dislikedCardIds.size;
+
+    // Laplace-smoothed priors
+    const priorLike = (totalLikes + 1) / (totalLikes + totalDislikes + 2);
+    const priorDislike = (totalDislikes + 1) / (totalLikes + totalDislikes + 2);
+
+    let logLike = Math.log(priorLike);
+    let logDislike = Math.log(priorDislike);
+
     const categoryWeights = {
       name: 4.0,
       type: 2.0,
@@ -503,30 +513,71 @@ class Recommender {
       year: 0.5,
       subtype: 0.5
     };
-    
+
     const debugDetails = {};
 
     for (const [category, values] of Object.entries(features)) {
-      let categoryScoreSum = 0;
+      const weight = categoryWeights[category] || 1.0;
       
+      // Calculate total counts for category
+      let totalLikesInCat = 0;
+      let totalDislikesInCat = 0;
+      if (this.stats[category]) {
+        for (const counts of Object.values(this.stats[category])) {
+          totalLikesInCat += counts.likes;
+          totalDislikesInCat += counts.dislikes;
+        }
+      }
+
+      const vocabSize = Math.max(1, (this.vocabSizes && this.vocabSizes[category]) ? this.vocabSizes[category].size : 10);
+      
+      let categoryProbLikeSum = 0;
+      let categoryProbDislikeSum = 0;
+
       values.forEach(val => {
-        categoryScoreSum += this.sampleFeatureValueScore(category, val);
+        const counts = this.stats[category]?.[val] || { likes: 0, dislikes: 0 };
+        
+        // Laplace smoothing
+        const pValGivenLike = (counts.likes + 1) / (totalLikesInCat + vocabSize);
+        const pValGivenDislike = (counts.dislikes + 1) / (totalDislikesInCat + vocabSize);
+        
+        categoryProbLikeSum += pValGivenLike;
+        categoryProbDislikeSum += pValGivenDislike;
+        
+        logLike += Math.log(pValGivenLike) * weight;
+        logDislike += Math.log(pValGivenDislike) * weight;
       });
 
-      const categoryAvg = categoryScoreSum / values.length;
-      const weight = categoryWeights[category] || 1.0;
-      totalWeightedScore += categoryAvg * weight;
-      totalWeight += weight;
-
-      if (debug) {
-        let valSum = 0;
-        values.forEach(v => { valSum += this.getFeatureValueRating(category, v); });
-        debugDetails[category] = Math.round((valSum / values.length) * 100);
+      if (values.length > 0) {
+        const avgLike = categoryProbLikeSum / values.length;
+        const avgDislike = categoryProbDislikeSum / values.length;
+        const catProb = avgLike / (avgLike + avgDislike);
+        debugDetails[category] = Math.round(catProb * 100);
       }
     }
 
-    const finalScore = totalWeightedScore / totalWeight;
-    return debug ? { score: finalScore, details: debugDetails } : finalScore;
+    const maxLog = Math.max(logLike, logDislike);
+    const probLike = Math.exp(logLike - maxLog) / (Math.exp(logLike - maxLog) + Math.exp(logDislike - maxLog));
+
+    return {
+      probLike,
+      probDislike: 1 - probLike,
+      details: debugDetails
+    };
+  }
+
+  // Score a card using Naive Bayes with confidence-scaled normal exploration variance
+  scoreCard(card, debug = false) {
+    const nb = this.calculateNaiveBayesProbability(card);
+    const N = this.swipedCardIds.size;
+    const confidence = N / (N + 15);
+    
+    // Variance scales down as confidence increases
+    const sigma = 0.25 * (1 - confidence);
+    const sample = nb.probLike + sampleNormal() * sigma;
+    const finalScore = Math.max(0, Math.min(1, sample));
+
+    return debug ? { score: finalScore, details: nb.details, confidence, probLike: nb.probLike } : finalScore;
   }
 
   // Choose the next recommended card from the pool (50% Exploitation, 50% Exploration)
@@ -610,51 +661,12 @@ class Recommender {
     }
   }
 
-  sampleFeatureValueExpectedScore(category, value) {
-    const counts = this.stats[category]?.[value] || { likes: 0, dislikes: 0 };
-    const alpha = 1 + counts.likes;
-    const beta = 1 + counts.dislikes;
-    return alpha / (alpha + beta);
-  }
-
   scoreCardExpected(card, debug = false) {
-    const features = this.extractCardFeatures(card);
-    let totalWeightedScore = 0;
-    let totalWeight = 0;
+    const nb = this.calculateNaiveBayesProbability(card);
+    const N = this.swipedCardIds.size;
+    const confidence = N / (N + 15);
     
-    const categoryWeights = {
-      name: 4.0,
-      type: 2.0,
-      artist: 2.0,
-      set: 1.0,
-      rarity: 1.0,
-      year: 0.5,
-      subtype: 0.5
-    };
-    
-    const debugDetails = {};
-
-    for (const [category, values] of Object.entries(features)) {
-      let categoryScoreSum = 0;
-      
-      values.forEach(val => {
-        categoryScoreSum += this.sampleFeatureValueExpectedScore(category, val);
-      });
-
-      const categoryAvg = categoryScoreSum / values.length;
-      const weight = categoryWeights[category] || 1.0;
-      totalWeightedScore += categoryAvg * weight;
-      totalWeight += weight;
-
-      if (debug) {
-        let valSum = 0;
-        values.forEach(v => { valSum += this.getFeatureValueRating(category, v); });
-        debugDetails[category] = Math.round((valSum / values.length) * 100);
-      }
-    }
-
-    const finalScore = totalWeightedScore / totalWeight;
-    return debug ? { score: finalScore, details: debugDetails } : finalScore;
+    return debug ? { score: nb.probLike, details: nb.details, confidence, probLike: nb.probLike } : nb.probLike;
   }
 
   sample10Cards(subPool) {
@@ -1480,6 +1492,7 @@ class UIController {
               this.cardsMap.set(card.id, card);
             }
           });
+          this.recommender.setVocabulary(this.cards);
           this.updateBinderCountBadge();
         }
 
@@ -1505,6 +1518,7 @@ class UIController {
     this.cards = await this.db.getAllCards();
     this.cardsMap.clear();
     this.cards.forEach(card => this.cardsMap.set(card.id, card));
+    this.recommender.setVocabulary(this.cards);
     this.updateBinderCountBadge();
     this.populateFilterDropdowns();
   }
@@ -1839,6 +1853,11 @@ class UIController {
     document.getElementById('stats-worth').innerText = `$${binderValue.toFixed(2)}`;
     document.getElementById('stats-max-card-price').innerText = `$${maxCardPrice.toFixed(2)}`;
 
+    const confidenceVal = swiped / (swiped + 15);
+    const confidencePct = Math.round(confidenceVal * 100);
+    const statsConfidenceEl = document.getElementById('stats-confidence');
+    if (statsConfidenceEl) statsConfidenceEl.innerText = `${confidencePct}%`;
+
     // RENDER: Algorithmic satisfaction curves
     this.renderSatisfactionTrendChart();
 
@@ -2102,19 +2121,28 @@ class UIController {
     }
 
     // Recommendation Breakdown
-    const recProfile = this.recommender.scoreCard(card, true);
+    const recProfile = this.recommender.scoreCardExpected(card, true);
     
-    document.getElementById('rec-bar-artist').style.width = `${recProfile.details.artist}%`;
-    document.getElementById('rec-val-artist').innerText = `${recProfile.details.artist}%`;
+    document.getElementById('rec-bar-artist').style.width = `${recProfile.details.artist || 50}%`;
+    document.getElementById('rec-val-artist').innerText = `${recProfile.details.artist || 50}%`;
     
-    document.getElementById('rec-bar-type').style.width = `${recProfile.details.type}%`;
-    document.getElementById('rec-val-type').innerText = `${recProfile.details.type}%`;
+    document.getElementById('rec-bar-type').style.width = `${recProfile.details.type || 50}%`;
+    document.getElementById('rec-val-type').innerText = `${recProfile.details.type || 50}%`;
     
-    document.getElementById('rec-bar-rarity').style.width = `${recProfile.details.rarity}%`;
-    document.getElementById('rec-val-rarity').innerText = `${recProfile.details.rarity}%`;
+    document.getElementById('rec-bar-rarity').style.width = `${recProfile.details.rarity || 50}%`;
+    document.getElementById('rec-val-rarity').innerText = `${recProfile.details.rarity || 50}%`;
     
-    document.getElementById('rec-bar-set').style.width = `${recProfile.details.set}%`;
-    document.getElementById('rec-val-set').innerText = `${recProfile.details.set}%`;
+    document.getElementById('rec-bar-set').style.width = `${recProfile.details.set || 50}%`;
+    document.getElementById('rec-val-set').innerText = `${recProfile.details.set || 50}%`;
+
+    const overallPct = Math.round(recProfile.probLike * 100);
+    const confidencePct = Math.round(recProfile.confidence * 100);
+
+    document.getElementById('rec-bar-overall').style.width = `${overallPct}%`;
+    document.getElementById('rec-val-overall').innerText = `${overallPct}%`;
+
+    document.getElementById('rec-bar-confidence').style.width = `${confidencePct}%`;
+    document.getElementById('rec-val-confidence').innerText = `${confidencePct}%`;
 
     this.bindModalCard3DEvents(card3D);
   }

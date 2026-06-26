@@ -227,6 +227,14 @@
               <p class="stat-number text-yellow" id="stats-worth">$0.00</p>
               <p class="stat-subtext">Max Single Value: <span id="stats-max-card-price">$0.00</span></p>
             </div>
+            <div class="stats-card glass-panel text-center">
+              <div class="stat-icon-wrapper color-cyan">
+                <i data-lucide="brain-circuit"></i>
+              </div>
+              <h3>Model Confidence</h3>
+              <p class="stat-number text-cyan" id="stats-confidence">0%</p>
+              <p class="stat-subtext">Naive Bayes Classifier</p>
+            </div>
           </div>
 
           <!-- Recommendation Learning Curve Section -->
@@ -546,6 +554,20 @@
                   <div class="rec-metric-bar bg-set" id="rec-bar-set" style="width: 50%;"></div>
                 </div>
                 <div class="rec-metric-val" id="rec-val-set">50%</div>
+              </div>
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Overall Match:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-overall" id="rec-bar-overall" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-overall">50%</div>
+              </div>
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Confidence:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-confidence" id="rec-bar-confidence" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-confidence">50%</div>
               </div>
             </div>
           </div>
