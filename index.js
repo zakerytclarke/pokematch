@@ -263,7 +263,7 @@ class PokemonDatabase {
         currentCachedCount = await this.getCardCount();
 
         if (onProgress) {
-          onProgress(page, currentCachedCount);
+          onProgress(page, currentCachedCount, data.cards);
         }
 
         // 1.5s rate-limit pause
@@ -273,7 +273,7 @@ class PokemonDatabase {
       console.error('Background sync failed:', err);
     } finally {
       this.isFetching = false;
-      if (onProgress) onProgress(-1, await this.getCardCount()); // Complete
+      if (onProgress) onProgress(-1, await this.getCardCount(), []); // Complete
     }
   }
 }
@@ -1468,12 +1468,20 @@ class UIController {
       await this.reloadLocalMemory();
 
       // Background downloader queue to continuously sync the full collection
-      this.db.startBackgroundSync((page, count) => {
+      this.db.startBackgroundSync((page, count, newCards) => {
         const pill = document.getElementById('settings-db-count');
         if (pill) pill.innerText = `${count} cards cached`;
         
-        // Reload cards dynamically in memory as pages stream in
-        this.reloadLocalMemory();
+        // Append cards in memory without full IndexedDB hits to avoid stutters
+        if (newCards && newCards.length > 0) {
+          newCards.forEach(card => {
+            if (!this.cardsMap.has(card.id)) {
+              this.cards.push(card);
+              this.cardsMap.set(card.id, card);
+            }
+          });
+          this.updateBinderCountBadge();
+        }
 
         if (page === -1) {
           console.log(`Background sync complete. Cards cached: ${count}`);
@@ -1497,6 +1505,11 @@ class UIController {
     this.cards = await this.db.getAllCards();
     this.cardsMap.clear();
     this.cards.forEach(card => this.cardsMap.set(card.id, card));
+    this.updateBinderCountBadge();
+    this.populateFilterDropdowns();
+  }
+
+  updateLocalBinderState() {
     this.updateBinderCountBadge();
     this.populateFilterDropdowns();
   }
@@ -1767,10 +1780,8 @@ class UIController {
         this.recommender.swipeHistory.push({ cardId: card.id, action: isSuper ? 'remove_super' : 'remove_like' });
         this.recommender.saveToStorage();
 
-        this.reloadLocalMemory().then(() => {
-          this.renderBinderGrid();
-          this.updateBinderCountBadge();
-        });
+        this.updateLocalBinderState();
+        this.renderBinderGrid();
       });
 
       // Super Like star toggle button
@@ -1783,9 +1794,8 @@ class UIController {
       superBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.recommender.toggleSuperLikeStatus(card);
-        this.reloadLocalMemory().then(() => {
-          this.renderBinderGrid();
-        });
+        this.updateLocalBinderState();
+        this.renderBinderGrid();
       });
 
       binderCardEl.appendChild(removeBtn);
@@ -2582,7 +2592,7 @@ class UIController {
   async handlePackCardSwipe(action) {
     if (this.currentActivePackCard) {
       this.recommender.recordSwipe(this.currentActivePackCard, action);
-      await this.reloadLocalMemory();
+      this.updateBinderCountBadge();
     }
     this.packSwipeIndex++;
     if (this.packSwipeIndex >= 10) {
@@ -2609,6 +2619,7 @@ class UIController {
         document.getElementById(`view-${target}`).classList.add('active');
 
         if (target === 'binder') {
+          this.populateFilterDropdowns();
           this.renderBinderGrid();
         } else if (target === 'stats') {
           this.renderStatsView();
