@@ -1,0 +1,16 @@
+{
+  "name": "pokematch",
+  "version": "1.0.0",
+  "description": "Tinder-style TCG Pokemon App with Thompson Sampling Recommendation Engine",
+  "scripts": {
+    "start": "npx -y http-server -p 3000"
+  },
+  "keywords": [
+    "pokemon",
+    "tcg",
+    "tinder",
+    "thompson-sampling"
+  ],
+  "author": "Antigravity Agent",
+  "license": "ISC"
+}

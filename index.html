@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description"
+    content="PokéMatch - Swipe, collect, and build your ultimate Pokémon TCG collection. Powered by Thompson Sampling recommendations.">
+  <title>PokéMatch - Tinder TCG Pokémon App</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide/dist/umd/lucide.min.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+
+  <!-- Background Glowing Blobs -->
+  <div class="bg-glow bg-glow-1" id="bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2" id="bg-glow-2"></div>
+
+  <!-- Splash / Loading Screen -->
+  <div id="splash-screen" class="splash-screen">
+    <div class="splash-content">
+      <div class="pokeball-loader">
+        <div class="pokeball-top"></div>
+        <div class="pokeball-center-button"></div>
+        <div class="pokeball-bottom"></div>
+      </div>
+      <h1 class="splash-title">PokéMatch</h1>
+      <p class="splash-subtitle">Loading Packs...</p>
+
+      <!-- Progress Bar -->
+      <div class="progress-container">
+        <div class="progress-bar" id="splash-progress"></div>
+      </div>
+      <p class="progress-text" id="splash-progress-text">Downloading initial card library (Page 0/4)...</p>
+    </div>
+  </div>
+
+  <!-- Main App Container -->
+  <div class="app-container" id="app-container" style="display: none;">
+
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <div class="mini-pokeball"></div>
+        </div>
+        <span class="logo-text">Poké<span class="logo-accent">Match</span></span>
+      </div>
+
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-target="packs" id="tab-packs-btn">
+          <i data-lucide="package"></i>
+          <span>Match</span>
+        </button>
+        <button class="nav-tab" data-target="binder" id="tab-binder-btn">
+          <i data-lucide="book-open"></i>
+          <span>My Binder</span>
+        </button>
+        <button class="nav-tab" data-target="stats" id="tab-stats-btn">
+          <i data-lucide="bar-chart-2"></i>
+          <span>Analytics</span>
+        </button>
+      </nav>
+
+      <div class="header-actions">
+        <button class="icon-btn" id="settings-btn" title="Settings / Reset">
+          <i data-lucide="sliders"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Views -->
+    <main class="app-content">
+
+
+
+      <!-- VIEW 2: MY BINDER (COLLECTION) -->
+      <section id="view-binder" class="app-view">
+        <div class="binder-view-container">
+
+          <!-- Filter and Sorting Shell -->
+          <div class="filter-bar glass-panel">
+            <div class="search-input-wrapper">
+              <i data-lucide="search" class="search-icon"></i>
+              <input type="text" id="binder-search" placeholder="Search collection...">
+            </div>
+
+            <div class="filter-dropdowns">
+              <select id="filter-collection" class="filter-select">
+                <option value="all">All Collected</option>
+                <option value="likes">Likes Only</option>
+                <option value="supers">Super Likes Only</option>
+                <option value="dislikes">Dislikes Only</option>
+              </select>
+
+              <select id="filter-supertype" class="filter-select">
+                <option value="">All Supertypes</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-type" class="filter-select">
+                <option value="">All Types</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-subtype" class="filter-select">
+                <option value="">All Subtypes</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-set" class="filter-select">
+                <option value="">All Sets</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-rarity" class="filter-select">
+                <option value="">All Rarities</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-year" class="filter-select">
+                <option value="">All Years</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="filter-artist" class="filter-select">
+                <option value="">All Artists</option>
+                <!-- Dynamically populated -->
+              </select>
+
+              <select id="sort-by" class="filter-select">
+                <option value="date-desc">Newest First</option>
+                <option value="date-asc">Oldest First</option>
+                <option value="price-desc">Price: High to Low</option>
+                <option value="price-asc">Price: Low to High</option>
+                <option value="name-asc">Name: A to Z</option>
+                <option value="name-desc">Name: Z to A</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Binder Card Counts & Valuation -->
+          <div class="binder-summary-stats">
+            <div class="stat-bubble">
+              <span class="label">Cards Collected</span>
+              <span class="value" id="binder-stat-count">0</span>
+            </div>
+            <div class="stat-bubble">
+              <span class="label">Est. Value (Market)</span>
+              <span class="value text-green" id="binder-stat-value">$0.00</span>
+            </div>
+            <div class="stat-bubble">
+              <span class="label">Holo Cards</span>
+              <span class="value text-purple" id="binder-stat-holo">0</span>
+            </div>
+          </div>
+
+          <!-- Grid of Liked Cards -->
+          <div class="binder-grid-wrapper">
+            <div class="binder-grid" id="binder-grid">
+              <!-- Liked cards dynamically injected here -->
+            </div>
+
+            <div class="binder-empty" id="binder-empty" style="display: none;">
+              <i data-lucide="book-open" class="empty-icon"></i>
+              <h3>Your binder is empty!</h3>
+              <p>Go to the Match screen and swipe right or super like cards you love to build your collection.</p>
+              <button class="btn btn-primary" id="empty-go-swipe-btn">
+                <i data-lucide="sparkles"></i> Start Swiping
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- VIEW 3: ANALYTICS / STATS -->
+      <section id="view-stats" class="app-view">
+        <div class="stats-view-container">
+
+          <!-- General Overview Grid -->
+          <div class="stats-overview-grid">
+            <div class="stats-card glass-panel text-center">
+              <div class="stat-icon-wrapper color-blue">
+                <i data-lucide="layers"></i>
+              </div>
+              <h3>Cards Swiped</h3>
+              <p class="stat-number" id="stats-total-swiped">0</p>
+              <p class="stat-subtext"><span id="stats-like-pct">0</span>% Like Ratio</p>
+            </div>
+
+            <div class="stats-card glass-panel text-center">
+              <div class="stat-icon-wrapper color-green">
+                <i data-lucide="heart"></i>
+              </div>
+              <h3>Likes</h3>
+              <p class="stat-number text-green" id="stats-likes">0</p>
+              <p class="stat-subtext">Added to binder</p>
+            </div>
+
+            <div class="stats-card glass-panel text-center">
+              <div class="stat-icon-wrapper color-red">
+                <i data-lucide="x"></i>
+              </div>
+              <h3>Dislikes</h3>
+              <p class="stat-number text-red" id="stats-dislikes">0</p>
+              <p class="stat-subtext">Discarded</p>
+            </div>
+
+            <div class="stats-card glass-panel text-center">
+              <div class="stat-icon-wrapper color-yellow">
+                <i data-lucide="coins"></i>
+              </div>
+              <h3>Binder Worth</h3>
+              <p class="stat-number text-yellow" id="stats-worth">$0.00</p>
+              <p class="stat-subtext">Max Single Value: <span id="stats-max-card-price">$0.00</span></p>
+            </div>
+          </div>
+
+          <!-- Recommendation Learning Curve Section -->
+          <div class="stats-trend-panel glass-panel">
+            <h2><i data-lucide="trending-up" class="title-icon"></i> Your Taste Sync Curve</h2>
+            <p class="explain-text">Tracks how closely PokéMatch matches your style as you swipe. Higher bars mean we're
+              successfully serving up cards you love!</p>
+            <div class="trend-chart-container" id="stats-satisfaction-trend">
+              <p class="no-data-text">Complete at least 10 swipes to see the satisfaction trend curve...</p>
+            </div>
+          </div>
+
+          <!-- Detailed Preferences Breakdown -->
+          <div class="stats-details-grid">
+
+            <!-- Favorite Types (Progress Bars) -->
+            <div class="details-panel glass-panel">
+              <h2><i data-lucide="flame" class="title-icon"></i> Favorite Types</h2>
+              <div class="list-container" id="stats-types-list">
+                <p class="no-data-text">Swipe on more cards to compile favorite types...</p>
+              </div>
+              <button class="show-more-btn" id="btn-show-more-types" style="display: none;">Show More</button>
+            </div>
+
+            <!-- Favorite Pokémon -->
+            <div class="details-panel glass-panel">
+              <h2><i data-lucide="award" class="title-icon"></i> Favorite Pokémon</h2>
+              <div class="list-container" id="stats-names-list">
+                <p class="no-data-text">Swipe on more cards to compile favorite Pokémon...</p>
+              </div>
+              <button class="show-more-btn" id="btn-show-more-names" style="display: none;">Show More</button>
+            </div>
+
+            <!-- Favorite Artists -->
+            <div class="details-panel glass-panel">
+              <h2><i data-lucide="palette" class="title-icon"></i> Favorite Artists</h2>
+              <div class="list-container" id="stats-artists-list">
+                <p class="no-data-text">Swipe on more cards to compile favorite artists...</p>
+              </div>
+              <button class="show-more-btn" id="btn-show-more-artists" style="display: none;">Show More</button>
+            </div>
+
+            <!-- Favorite Sets -->
+            <div class="details-panel glass-panel">
+              <h2><i data-lucide="archive" class="title-icon"></i> Favorite Sets</h2>
+              <div class="list-container" id="stats-sets-list">
+                <p class="no-data-text">Swipe on more cards to compile favorite sets...</p>
+              </div>
+              <button class="show-more-btn" id="btn-show-more-sets" style="display: none;">Show More</button>
+            </div>
+
+            <!-- Favorite Rarities -->
+            <div class="details-panel glass-panel">
+              <h2><i data-lucide="crown" class="title-icon"></i> Rarity Preferences</h2>
+              <div class="list-container" id="stats-rarities-list">
+                <p class="no-data-text">Swipe on more cards to compile rarity insights...</p>
+              </div>
+              <button class="show-more-btn" id="btn-show-more-rarities" style="display: none;">Show More</button>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- VIEW 4: BOOSTER PACKS OPENER -->
+      <section id="view-packs" class="app-view active">
+        <div class="packs-view-container">
+
+          <!-- Chamber 1: Pack opening area -->
+          <div class="pack-opening-chamber" id="pack-opening-chamber">
+            <!-- Canvas to draw neon slash line -->
+            <canvas class="slash-canvas" id="slash-canvas"></canvas>
+
+            <div class="pack-instructions">
+              <h2>Booster Pack Opening</h2>
+              <p>Swipe across the foil pack to slice it open!</p>
+            </div>
+
+            <div class="booster-pack-container" id="booster-pack-container">
+              <!-- 3D foil pack wrapper -->
+              <div class="booster-pack" id="booster-pack">
+                <div class="booster-pack-half booster-pack-top" id="pack-half-top">
+                  <div class="crimp-edge"></div>
+                  <div class="pack-overlay-shiny"></div>
+                  <div class="pack-logo-text">BOOSTER</div>
+                  <div class="pack-logo-symbol" id="pack-logo-symbol"></div>
+                  <div class="pokeball-logo-half pokeball-logo-top">
+                    <div class="pokeball-logo-center"></div>
+                  </div>
+                </div>
+
+                <div class="booster-pack-half booster-pack-bottom" id="pack-half-bottom">
+                  <div class="pack-overlay-shiny"></div>
+                  <div class="pack-logo-text">PACK</div>
+                  <div class="pack-card-count">10 CARDS</div>
+                  <div class="pokeball-logo-half pokeball-logo-bottom">
+                    <div class="pokeball-logo-center"></div>
+                  </div>
+                  <div class="crimp-edge"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Fallback Button -->
+            <button class="btn btn-primary" id="btn-tear-pack">
+              <i data-lucide="scissors"></i> Rip Open Pack
+            </button>
+          </div>
+
+          <!-- Chamber 2: Opened Pack Swipe Mode (hidden by default) -->
+          <div class="pack-reveal-chamber" id="pack-reveal-chamber" style="display: none;">
+            <div class="swipe-view-container">
+              <!-- Progress Indicator -->
+              <div class="recommender-status" style="position: static; margin-bottom: 10px;">
+                <span class="status-pulse"></span>
+                <span>Pack Progress: <span id="pack-swipe-progress">1/10</span></span>
+              </div>
+
+              <!-- Tinder Card Deck Area -->
+              <div class="deck-container">
+                <div class="card-deck" id="pack-card-deck">
+                  <!-- Cards will be dynamically injected here -->
+
+                  <!-- Pack Finished Placeholder -->
+                  <div class="deck-empty" id="pack-deck-empty" style="display: none;">
+                    <div class="empty-icon-pulse">
+                      <i data-lucide="check-circle-2"></i>
+                    </div>
+                    <h3>Pack Fully Swiped!</h3>
+                    <p>All 10 cards have been added to your collection binder or discarded.</p>
+                    <button class="btn btn-primary" id="btn-next-pack">
+                      <i data-lucide="package"></i>
+                      Open Next Pack
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Interactive Action Buttons -->
+              <div class="swipe-actions" id="pack-swipe-actions">
+                <!-- Dislike Button -->
+                <button class="action-btn btn-dislike" id="pack-btn-dislike" title="Nope (Swipe Left)">
+                  <i data-lucide="x"></i>
+                </button>
+
+                <!-- Super Like Button -->
+                <button class="action-btn btn-super" id="pack-btn-super" title="Super Like (Swipe Up)">
+                  <i data-lucide="star"></i>
+                </button>
+
+                <!-- Info Button -->
+                <button class="action-btn btn-info" id="pack-btn-info" title="Inspect Card Details">
+                  <i data-lucide="info"></i>
+                </button>
+
+                <!-- Like Button -->
+                <button class="action-btn btn-like" id="pack-btn-like" title="Like (Swipe Right)">
+                  <i data-lucide="heart"></i>
+                </button>
+              </div>
+
+              <!-- Brief Card Meta Summary Drawer -->
+              <div class="card-summary-drawer" id="pack-card-summary-drawer">
+                <div class="summary-header">
+                  <h2 id="pack-summary-card-name">Loading...</h2>
+                  <span class="card-badge" id="pack-summary-card-type">---</span>
+                </div>
+                <div class="summary-details">
+                  <span id="pack-summary-card-set">---</span> &bull;
+                  <span id="pack-summary-card-rarity">---</span> &bull;
+                  <span id="pack-summary-card-artist">---</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- DETAILS INSPECTOR MODAL -->
+  <div class="modal-overlay" id="card-modal">
+    <div class="modal-container">
+
+      <!-- Close Button -->
+      <button class="modal-close-btn" id="modal-close-btn">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="modal-body">
+
+        <!-- Left Side: Interactive 3D Card Zoom -->
+        <div class="modal-image-column">
+          <div class="modal-card-wrapper">
+            <div class="card-3d" id="modal-card-3d">
+              <div class="card-3d-front">
+                <img id="modal-card-img" src="" alt="Pokemon Card High Res">
+                <div class="holo-sheen" id="modal-holo-sheen"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-actions-modal">
+            <a href="#" target="_blank" id="modal-tcgplayer-btn" class="btn btn-secondary">
+              <i data-lucide="external-link"></i> View on TCGPlayer
+            </a>
+          </div>
+        </div>
+
+        <!-- Right Side: Extensive Metadata and Price Charts -->
+        <div class="modal-info-column">
+          <div class="modal-card-header">
+            <div class="header-title-row">
+              <h1 id="modal-card-name">Card Name</h1>
+              <span id="modal-card-id" class="card-id-pill">xy1-1</span>
+            </div>
+
+            <div class="header-badges">
+              <span class="type-pill" id="modal-card-type">Fire</span>
+              <span class="subtype-pill" id="modal-card-subtypes">Stage 2</span>
+              <span class="rarity-pill" id="modal-card-rarity">Rare Holo</span>
+            </div>
+          </div>
+
+          <!-- Price Information (Tcgplayer & Cardmarket) -->
+          <div class="modal-section border-top">
+            <h2><i data-lucide="tag"></i> Market Pricing</h2>
+            <div class="pricing-grid">
+              <div class="price-card">
+                <span class="price-title">Low Price</span>
+                <span class="price-value" id="price-low">$0.00</span>
+              </div>
+              <div class="price-card">
+                <span class="price-title">Market Price</span>
+                <span class="price-value text-green" id="price-market">$0.00</span>
+              </div>
+              <div class="price-card">
+                <span class="price-title">High Price</span>
+                <span class="price-value" id="price-high">$0.00</span>
+              </div>
+            </div>
+            <p class="pricing-source">Updated via TCGPlayer API &bull; Prices vary by printing (Normal / Holofoil /
+              Reverse Holo)</p>
+          </div>
+
+          <!-- Card Specific details (HP, Artist, Release Year) -->
+          <div class="modal-section border-top">
+            <h2><i data-lucide="info"></i> Card Profile</h2>
+            <table class="profile-table">
+              <tr>
+                <td><strong>Artist:</strong></td>
+                <td id="profile-artist">Mitsuhiro Arita</td>
+              </tr>
+              <tr>
+                <td><strong>Set Name:</strong></td>
+                <td>
+                  <span id="profile-set-name">Base Set</span>
+                  <img id="profile-set-symbol" class="set-symbol-inline" src="" alt="Symbol">
+                </td>
+              </tr>
+              <tr>
+                <td><strong>Release Date:</strong></td>
+                <td id="profile-release">1999/01/09</td>
+              </tr>
+              <tr>
+                <td><strong>HP:</strong></td>
+                <td id="profile-hp">120 HP</td>
+              </tr>
+              <tr>
+                <td><strong>Supertype:</strong></td>
+                <td id="profile-supertype">Pokémon</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Attacks / Rules Section -->
+          <div class="modal-section border-top" id="modal-section-attacks">
+            <h2><i data-lucide="swords"></i> Attacks & Abilities</h2>
+            <div class="attacks-list" id="modal-attacks-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Recommender Statistics Breakdown -->
+          <div class="modal-section border-top recommender-stats-breakdown">
+            <h2><i data-lucide="brain-circuit"></i> Vibe Match Profile</h2>
+            <p class="explain-text">Vibe check! Here is how well this card matches your collection style:</p>
+
+            <div class="rec-metrics-grid">
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Artist Vibe:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-artist" id="rec-bar-artist" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-artist">50%</div>
+              </div>
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Type Vibe:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-type" id="rec-bar-type" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-type">50%</div>
+              </div>
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Rarity Vibe:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-rarity" id="rec-bar-rarity" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-rarity">50%</div>
+              </div>
+              <div class="rec-metric">
+                <div class="rec-metric-lbl">Set Vibe:</div>
+                <div class="rec-metric-bar-container">
+                  <div class="rec-metric-bar bg-set" id="rec-bar-set" style="width: 50%;"></div>
+                </div>
+                <div class="rec-metric-val" id="rec-val-set">50%</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS / RESET MODAL -->
+  <div class="modal-overlay" id="settings-modal-overlay">
+    <div class="settings-modal-container glass-panel">
+      <h2><i data-lucide="sliders"></i> PokéMatch Settings</h2>
+      <p class="settings-desc">Manage your saved card catalog and personalization settings.</p>
+
+      <div class="settings-options">
+        <div class="setting-row">
+          <div class="setting-info">
+            <strong>Clear Swipe History</strong>
+            <span>Resets your card preferences. PokéMatch will start fresh.</span>
+          </div>
+          <button class="btn btn-warning" id="settings-clear-model-btn">
+            <i data-lucide="trash-2"></i> Reset Swipes
+          </button>
+        </div>
+
+        <div class="setting-row border-top">
+          <div class="setting-info">
+            <strong>Clear Local Cards Cache</strong>
+            <span>Deletes your local cards catalog. PokéMatch will re-download cards from the TCG database.</span>
+          </div>
+          <button class="btn btn-danger" id="settings-clear-db-btn">
+            <i data-lucide="rotate-ccw"></i> Reset Catalog
+          </button>
+        </div>
+
+        <div class="setting-row border-top">
+          <div class="setting-info">
+            <strong>Database Info</strong>
+            <span>Check how many Pokémon cards are cached locally in your browser.</span>
+          </div>
+          <div class="db-info-pill" id="settings-db-count">Checking...</div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button class="btn btn-secondary" id="settings-close-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Scripts -->
+  <script src="index.js" type="module"></script>
+</body>
+
+</html>
