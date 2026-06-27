@@ -1832,12 +1832,16 @@ class UIController {
   renderStatsView() {
     const swiped = this.recommender.swipedCardIds.size;
     const likes = this.recommender.likedCardIds.size;
+    const superlikes = this.recommender.superLikedCardIds.size;
     const dislikes = this.recommender.dislikedCardIds.size;
     const likePct = swiped > 0 ? Math.round((likes / swiped) * 100) : 0;
 
     document.getElementById('stats-total-swiped').innerText = swiped;
     document.getElementById('stats-like-pct').innerText = likePct;
     document.getElementById('stats-likes').innerText = likes;
+    if (document.getElementById('stats-superlikes')) {
+      document.getElementById('stats-superlikes').innerText = superlikes;
+    }
     document.getElementById('stats-dislikes').innerText = dislikes;
 
     let binderValue = 0;
@@ -1881,7 +1885,7 @@ class UIController {
 
     container.innerHTML = '';
 
-    const displayedBlocks = blocks.slice(-10);
+    const displayedBlocks = blocks.slice(-6);
     displayedBlocks.forEach(block => {
       const barWrapper = document.createElement('div');
       barWrapper.className = 'trend-bar-wrapper';
@@ -1979,7 +1983,7 @@ class UIController {
     }
   }
 
-  // Compile stats ratio helper: sorts by like percentage, with a secondary sorting by seen count to avoid 1/1 likes skewing top rankings
+  // Compile stats ratio helper: sorts by Laplace-smoothed Bayesian score to prevent low samples (e.g. 1/1) from outranking high-volume high-ratio features (e.g. 99/100)
   compileFeatureRatio(category) {
     const data = this.recommender.stats[category] || {};
     const array = [];
@@ -1987,16 +1991,22 @@ class UIController {
     for (const [value, counts] of Object.entries(data)) {
       const seen = counts.likes + counts.dislikes;
       if (seen > 0) {
-        const pct = Math.round((counts.likes / seen) * 100);
-        array.push({ value, likes: counts.likes, dislikes: counts.dislikes, seen, pct });
+        // Laplace-smoothed Bayesian posterior estimate: (likes + 1) / (seen + 2)
+        const smoothedPct = Math.round(((counts.likes + 1) / (seen + 2)) * 100);
+        // Raw percentage
+        const rawPct = Math.round((counts.likes / seen) * 100);
+        array.push({ value, likes: counts.likes, dislikes: counts.dislikes, seen, pct: rawPct, smoothedPct });
       }
     }
 
     return array.sort((a, b) => {
-      if (b.pct !== a.pct) {
-        return b.pct - a.pct;
+      if (b.smoothedPct !== a.smoothedPct) {
+        return b.smoothedPct - a.smoothedPct;
       }
-      return b.seen - a.seen;
+      if (b.seen !== a.seen) {
+        return b.seen - a.seen;
+      }
+      return a.value.localeCompare(b.value);
     });
   }
 
