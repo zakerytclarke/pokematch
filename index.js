@@ -56,6 +56,22 @@ function getReleaseYear(card) {
   return 'Unknown';
 }
 
+// Helper: Resolve image URL (always returns original TCG CDN URL, auto-correcting any local paths from dirty cache)
+function resolveImageUrl(originalUrl, id, type = 'card') {
+  if (!originalUrl) return '';
+  if (originalUrl.startsWith('http')) {
+    return originalUrl;
+  }
+  if (type === 'symbol') {
+    return `https://images.pokemontcg.io/${id}/symbol.png`;
+  } else {
+    const parts = id.split('-');
+    const setId = parts[0];
+    const number = parts.slice(1).join('-'); // handle card numbers that might contain hyphens
+    return `https://images.pokemontcg.io/${setId}/${number}.png`;
+  }
+}
+
 // Helper: Clean and extract root Pokemon name (strips trainer prefixes and special card suffixes)
 function cleanPokemonName(name) {
   if (!name) return 'Unknown';
@@ -205,8 +221,8 @@ class PokemonDatabase {
       fetched = [];
     }
 
-    // Total of 81 pages in Pokemon TCG API v2
-    const totalPagesCount = 81;
+    // Total of 10 local JSON files
+    const totalPagesCount = 10;
     const allPages = Array.from({ length: totalPagesCount }, (_, i) => i + 1);
     const available = allPages.filter(p => !fetched.includes(p));
 
@@ -220,16 +236,16 @@ class PokemonDatabase {
     return chosenPage;
   }
 
-  // Synchronize/Fetch cards from TCG API page-by-page
+  // Synchronize/Fetch cards from local JSON files
   async fetchCardsPage(page = 1) {
-    const url = `https://api.pokemontcg.io/v2/cards?pageSize=250&page=${page}`;
+    const url = `./data/cards_${page}.json`;
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const payload = await response.json();
+      const cards = await response.json();
       return {
-        cards: payload.data || [],
-        totalCount: payload.totalCount || 0
+        cards: cards || [],
+        totalCount: cards.length
       };
     } catch (e) {
       console.error(`Error fetching page ${page}:`, e);
@@ -249,13 +265,13 @@ class PokemonDatabase {
       while (currentCachedCount < targetCount) {
         const page = this.getRandomUnfetchedPage();
         if (page === -1) {
-          console.log('All API pages fetched, background sync stopping');
+          console.log('All local pages fetched, background sync stopping');
           break;
         }
 
         const data = await this.fetchCardsPage(page);
         if (data.cards.length === 0) {
-          console.warn(`API page ${page} returned empty, aborting background fetch`);
+          console.warn(`Local page ${page} returned empty, aborting background fetch`);
           break;
         }
 
@@ -266,8 +282,8 @@ class PokemonDatabase {
           onProgress(page, currentCachedCount, data.cards);
         }
 
-        // 1.5s rate-limit pause
-        await new Promise(r => setTimeout(r, 1500));
+        // Tiny delay for non-blocking UI rendering
+        await new Promise(r => setTimeout(r, 50));
       }
     } catch (err) {
       console.error('Background sync failed:', err);
@@ -1120,7 +1136,7 @@ class CardDeck {
     cardEl.style.setProperty('--card-glow-color', `var(--type-${firstType})`);
 
     const img = document.createElement('img');
-    img.src = card.images.small;
+    img.src = resolveImageUrl(card.images.small, card.id, 'card');
     img.alt = card.name;
     img.loading = 'eager';
     cardEl.appendChild(img);
@@ -1429,7 +1445,7 @@ class UIController {
 
       if (cachedCount < 500) {
         // First Boot: Download 2 random pages (500 cards) in parallel to load rapidly
-        this.showSplashProgress(5, 'Connecting to TCG database...');
+        this.showSplashProgress(5, 'Initializing local database...');
         
         const targetPages = 2;
         let fetchedCount = 0;
@@ -1449,7 +1465,7 @@ class UIController {
           const progressPct = Math.round((fetchedCount / targetPages) * 100);
           this.showSplashProgress(
             progressPct,
-            `Downloading initial card library (${progressPct}% complete)...`
+            `Loading initial card library (${progressPct}% complete)...`
           );
 
           try {
@@ -1540,7 +1556,7 @@ class UIController {
     if (!this.currentPackCards) return;
     this.currentPackCards.forEach(card => {
       if (card && card.images && card.images.small) {
-        this.preloadImage(card.images.small);
+        this.preloadImage(resolveImageUrl(card.images.small, card.id, 'card'));
       }
     });
   }
@@ -1769,7 +1785,7 @@ class UIController {
       binderCardEl.style.setProperty('--card-glow-color', `var(--type-${firstType})`);
 
       const img = document.createElement('img');
-      img.src = card.images.small;
+      img.src = resolveImageUrl(card.images.small, card.id, 'card');
       img.alt = card.name;
       img.loading = 'lazy';
       binderCardEl.appendChild(img);
@@ -1794,6 +1810,16 @@ class UIController {
         this.recommender.swipeHistory.push({ cardId: card.id, action: isSuper ? 'remove_super' : 'remove_like' });
         this.recommender.saveToStorage();
 
+        if (window.posthog) {
+          window.posthog.capture('card_removed_from_binder', {
+            card_rarity: card.rarity || 'Unknown',
+            card_type: card.types && card.types[0] ? card.types[0] : 'None',
+            card_set: card.set && card.set.name ? card.set.name : 'Unknown',
+            was_superliked: isSuper,
+            binder_size_after: this.recommender.likedCardIds.size,
+          });
+        }
+
         this.updateLocalBinderState();
         this.renderBinderGrid();
       });
@@ -1804,10 +1830,18 @@ class UIController {
       const isSuper = this.recommender.superLikedCardIds.has(card.id);
       superBtn.title = isSuper ? 'Convert to regular Like' : 'Convert to Super Like';
       superBtn.innerHTML = '<i data-lucide="star"></i>';
-      
+
       superBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.recommender.toggleSuperLikeStatus(card);
+        const nowSuper = this.recommender.toggleSuperLikeStatus(card);
+        if (window.posthog) {
+          window.posthog.capture('superlike_toggled', {
+            new_status: nowSuper ? 'superlike' : 'like',
+            card_rarity: card.rarity || 'Unknown',
+            card_type: card.types && card.types[0] ? card.types[0] : 'None',
+            card_set: card.set && card.set.name ? card.set.name : 'Unknown',
+          });
+        }
         this.updateLocalBinderState();
         this.renderBinderGrid();
       });
@@ -2017,10 +2051,23 @@ class UIController {
     const modal = document.getElementById('card-modal');
     modal.classList.add('active');
 
+    if (window.posthog) {
+      const pricing = getCardPrice(card);
+      window.posthog.capture('card_inspected', {
+        card_rarity: card.rarity || 'Unknown',
+        card_type: card.types && card.types[0] ? card.types[0] : 'None',
+        card_set: card.set && card.set.name ? card.set.name : 'Unknown',
+        card_supertype: card.supertype || 'Unknown',
+        card_market_price: pricing.market,
+        is_in_binder: this.recommender.likedCardIds.has(card.id),
+        is_superliked: this.recommender.superLikedCardIds.has(card.id),
+      });
+    }
+
     const card3D = document.getElementById('modal-card-3d');
     card3D.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
 
-    const largeImg = card.images.large || card.images.small;
+    const largeImg = resolveImageUrl(card.images.large || card.images.small, card.id, 'card');
     document.getElementById('modal-card-img').src = largeImg;
 
     document.getElementById('modal-card-name').innerText = card.name;
@@ -2062,6 +2109,15 @@ class UIController {
     if (card.tcgplayer?.url) {
       tcgplayerBtn.href = card.tcgplayer.url;
       tcgplayerBtn.style.display = 'inline-flex';
+      tcgplayerBtn.onclick = () => {
+        if (window.posthog) {
+          window.posthog.capture('tcgplayer_link_clicked', {
+            card_rarity: card.rarity || 'Unknown',
+            card_set: card.set && card.set.name ? card.set.name : 'Unknown',
+            card_market_price: pricing.market,
+          });
+        }
+      };
     } else {
       tcgplayerBtn.style.display = 'none';
     }
@@ -2075,7 +2131,7 @@ class UIController {
     
     const setSymbol = document.getElementById('profile-set-symbol');
     if (card.set?.images?.symbol) {
-      setSymbol.src = card.set.images.symbol;
+      setSymbol.src = resolveImageUrl(card.set.images.symbol, card.set.id, 'symbol');
       setSymbol.style.display = 'inline-block';
     } else {
       setSymbol.style.display = 'none';
@@ -2498,6 +2554,14 @@ class UIController {
 
     this.slicedState = true;
 
+    if (window.posthog) {
+      window.posthog.capture('pack_opened', {
+        pack_type: this.currentPackMetadata ? this.currentPackMetadata.type : 'silver',
+        pack_subtype: this.currentPackMetadata ? this.currentPackMetadata.subtypeName : 'Normal',
+        packs_opened_total: this.recommender.packsOpenedCount,
+      });
+    }
+
     const packEl = document.getElementById('booster-pack');
     if (packEl) packEl.classList.add('sliced');
 
@@ -2629,8 +2693,19 @@ class UIController {
 
   async handlePackCardSwipe(action) {
     if (this.currentActivePackCard) {
-      this.recommender.recordSwipe(this.currentActivePackCard, action);
+      const card = this.currentActivePackCard;
+      this.recommender.recordSwipe(card, action);
       this.updateBinderCountBadge();
+      if (window.posthog) {
+        window.posthog.capture('card_swiped', {
+          swipe_action: action,
+          card_rarity: card.rarity || 'Unknown',
+          card_type: card.types && card.types[0] ? card.types[0] : 'None',
+          card_set: card.set && card.set.name ? card.set.name : 'Unknown',
+          pack_type: this.currentPackMetadata ? this.currentPackMetadata.type : 'silver',
+          total_cards_swiped: this.recommender.swipedCardIds.size + 1,
+        });
+      }
     }
     this.packSwipeIndex++;
     if (this.packSwipeIndex >= 10) {
@@ -2692,6 +2767,12 @@ class UIController {
     const btnNextPack = document.getElementById('btn-next-pack');
     if (btnNextPack) {
       btnNextPack.addEventListener('click', () => {
+        if (window.posthog) {
+          window.posthog.capture('next_pack_started', {
+            packs_opened_total: this.recommender.packsOpenedCount,
+            binder_size: this.recommender.likedCardIds.size,
+          });
+        }
         this.currentPackCards = [];
         this.initPacksView();
       });
@@ -2751,7 +2832,15 @@ class UIController {
       const el = document.getElementById(id);
       if (el) {
         const eventName = id === 'binder-search' ? 'input' : 'change';
-        el.addEventListener(eventName, () => this.renderBinderGrid());
+        el.addEventListener(eventName, () => {
+          if (window.posthog && el.value) {
+            window.posthog.capture('binder_filtered', {
+              filter_type: id,
+              filter_value: id === 'binder-search' ? '[search query]' : el.value,
+            });
+          }
+          this.renderBinderGrid();
+        });
       }
     });
 
@@ -2784,6 +2873,13 @@ class UIController {
 
     document.getElementById('settings-clear-model-btn').addEventListener('click', () => {
       if (confirm('Clear your card preferences? Swipe history will be deleted.')) {
+        if (window.posthog) {
+          window.posthog.capture('swipe_history_reset', {
+            cards_liked_before_reset: this.recommender.likedCardIds.size,
+            cards_swiped_before_reset: this.recommender.swipedCardIds.size,
+            packs_opened_before_reset: this.recommender.packsOpenedCount,
+          });
+        }
         this.recommender.clearStats();
         this.updateBinderCountBadge();
         this.currentPackCards = [];
@@ -2794,16 +2890,21 @@ class UIController {
 
     document.getElementById('settings-clear-db-btn').addEventListener('click', async () => {
       if (confirm('Reset your card catalog? PokéMatch will need to re-download cards.')) {
+        if (window.posthog) {
+          window.posthog.capture('card_catalog_reset', {
+            cards_cached_before_reset: this.cards.length,
+          });
+        }
         settingsOverlay.classList.remove('active');
         document.getElementById('app-container').style.display = 'none';
-        
+
         const splash = document.getElementById('splash-screen');
         splash.classList.remove('fade-out');
         this.showSplashProgress(0, 'Clearing local card files...');
 
         await this.db.clearCache();
         this.recommender.clearStats();
-        
+
         window.location.reload();
       }
     });

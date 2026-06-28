@@ -1,0 +1,9 @@
+# Ignore cached low-res images to keep the repository light and fast
+images/
+
+# Sensitive env files
+.env
+.env*.local
+
+# System files
+.DS_Store
